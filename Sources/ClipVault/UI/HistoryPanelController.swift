@@ -6,6 +6,7 @@ class HistoryPanelController {
     private let store: ClipboardStore
     private let settingsManager: SettingsManager
     private var clickOutsideMonitor: Any?
+    private var previousApp: NSRunningApplication?
 
     init(store: ClipboardStore, settingsManager: SettingsManager) {
         self.store = store
@@ -30,6 +31,7 @@ class HistoryPanelController {
     }
 
     func show() {
+        previousApp = NSWorkspace.shared.frontmostApplication
         positionNearMouse()
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
@@ -42,27 +44,56 @@ class HistoryPanelController {
     }
 
     private func selectItem(_ item: ClipboardItem) {
+        let appToRestore = previousApp
         hide()
         store.writeToPasteboard(item)
-        PasteService.simulatePaste()
+
+        // Force-activate the previously focused app so Cmd+V targets it
+        appToRestore?.activate(options: .activateIgnoringOtherApps)
+
+        // Delay paste until macOS finishes the app switch
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            PasteService.simulatePaste()
+        }
     }
 
     private func positionNearMouse() {
-        let mouseLocation = NSEvent.mouseLocation
-        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) })
+        let mouse = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) })
               ?? NSScreen.main else { return }
 
-        let screenFrame = screen.visibleFrame
-        var origin = NSPoint(
-            x: mouseLocation.x - Constants.panelWidth / 2,
-            y: mouseLocation.y - Constants.panelHeight / 2
-        )
+        let panelSize = panel.frame.size
+        let safe = screen.visibleFrame
+        let margin: CGFloat = 4
 
-        // Clamp to screen bounds
-        origin.x = max(screenFrame.minX, min(origin.x, screenFrame.maxX - Constants.panelWidth))
-        origin.y = max(screenFrame.minY, min(origin.y, screenFrame.maxY - Constants.panelHeight))
+        // macOS coordinates: origin at bottom-left, y increases upward.
+        // Default: panel top-left corner at cursor (origin.y = mouse.y - panelHeight).
+        var x = mouse.x
+        var y = mouse.y - panelSize.height
 
-        panel.setFrameOrigin(origin)
+        // Flip horizontally: if panel would overflow right edge, place it to the left of cursor
+        if x + panelSize.width > safe.maxX - margin {
+            x = mouse.x - panelSize.width
+        }
+        // If still overflows left edge, clamp to left
+        if x < safe.minX + margin {
+            x = safe.minX + margin
+        }
+
+        // Flip vertically: if panel would overflow below bottom edge, place it above cursor
+        if y < safe.minY + margin {
+            y = mouse.y
+        }
+        // If still overflows top edge, clamp to top
+        if y + panelSize.height > safe.maxY - margin {
+            y = safe.maxY - panelSize.height - margin
+        }
+        // Final safety clamp for bottom
+        if y < safe.minY + margin {
+            y = safe.minY + margin
+        }
+
+        panel.setFrameOrigin(NSPoint(x: x, y: y))
     }
 
     private func setupEscapeHandler() {
