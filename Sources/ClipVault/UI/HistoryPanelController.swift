@@ -48,11 +48,15 @@ class HistoryPanelController {
         hide()
         store.writeToPasteboard(item)
 
-        // Force-activate the previously focused app so Cmd+V targets it
-        appToRestore?.activate(options: .activateIgnoringOtherApps)
+        // Activate the previously focused app using the correct API for the OS version
+        if #available(macOS 14.0, *) {
+            appToRestore?.activate()
+        } else {
+            appToRestore?.activate(options: .activateIgnoringOtherApps)
+        }
 
-        // Delay paste until macOS finishes the app switch
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        // Wait for app switch to fully complete, then simulate Cmd+V
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             PasteService.simulatePaste()
         }
     }

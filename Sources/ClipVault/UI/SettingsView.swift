@@ -60,7 +60,13 @@ struct SettingsView: View {
                 HStack {
                     Text("ClipVault")
                     Spacer()
-                    Text("Version 1.0")
+                    Text("Version 1.1")
+                        .foregroundColor(.secondary)
+                }
+                HStack {
+                    Text("Developer")
+                    Spacer()
+                    Text("Joey <275980464@qq.com>")
                         .foregroundColor(.secondary)
                 }
             }

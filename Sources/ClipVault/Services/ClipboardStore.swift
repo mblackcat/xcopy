@@ -30,23 +30,29 @@ class ClipboardStore: ObservableObject {
         var textPreview: String?
         var blobFileName: String?
         var richTextBlobFileName: String?
-        var originalFileURL: String?
+        var originalFileURLs: [String]?
 
         let frontApp = NSWorkspace.shared.frontmostApplication
         let sourceAppBundleID = frontApp?.bundleIdentifier
         let sourceAppName = frontApp?.localizedName
 
-        // Check for file URLs
+        // Check for file URLs (capture all, not just the first)
         if types.contains(.fileURL),
            let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
-           let url = urls.first {
+           !urls.isEmpty {
             itemTypes.append(.fileURL)
-            originalFileURL = url.path
-            textPreview = url.lastPathComponent
+            originalFileURLs = urls.map { $0.path }
+            if urls.count == 1 {
+                textPreview = urls[0].lastPathComponent
+            } else {
+                textPreview = urls.map { $0.lastPathComponent }.joined(separator: ", ")
+            }
         }
 
-        // Check for images
-        if types.contains(.tiff) || types.contains(.png) {
+        let isFileItem = itemTypes.contains(.fileURL)
+
+        // Check for images (skip if this is a file/directory copy — the image would just be the file icon)
+        if !isFileItem, types.contains(.tiff) || types.contains(.png) {
             if let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
                 itemTypes.append(.image)
                 let fileName = UUID().uuidString + ".png"
@@ -56,8 +62,8 @@ class ClipboardStore: ObservableObject {
             }
         }
 
-        // Check for rich text
-        if types.contains(.rtf) {
+        // Check for rich text (skip for file items)
+        if !isFileItem, types.contains(.rtf) {
             if let rtfData = pasteboard.data(forType: .rtf) {
                 itemTypes.append(.richText)
                 let fileName = UUID().uuidString + ".rtf"
@@ -67,8 +73,8 @@ class ClipboardStore: ObservableObject {
             }
         }
 
-        // Check for plain text
-        if let text = pasteboard.string(forType: .string) {
+        // Check for plain text (skip for file items — we already use the file name as preview)
+        if !isFileItem, let text = pasteboard.string(forType: .string) {
             if !itemTypes.contains(.text) {
                 itemTypes.append(.text)
             }
@@ -77,8 +83,10 @@ class ClipboardStore: ObservableObject {
 
         guard !itemTypes.isEmpty else { return }
 
-        // Deduplicate: remove previous identical text items
-        if let preview = textPreview {
+        // Deduplicate: remove previous identical items
+        if isFileItem, let urls = originalFileURLs {
+            items.removeAll { $0.originalFileURLs == urls }
+        } else if let preview = textPreview {
             items.removeAll { $0.textPreview == preview && $0.types == itemTypes }
         }
 
@@ -89,7 +97,7 @@ class ClipboardStore: ObservableObject {
             richTextBlobFileName: richTextBlobFileName,
             sourceAppBundleID: sourceAppBundleID,
             sourceAppName: sourceAppName,
-            originalFileURL: originalFileURL
+            originalFileURLs: originalFileURLs
         )
 
         items.insert(item, at: 0)
@@ -104,35 +112,35 @@ class ClipboardStore: ObservableObject {
 
         var wroteContent = false
 
-        // Write image blob
-        if let blobName = item.blobFileName {
-            let blobPath = blobsURL.appendingPathComponent(blobName)
-            if let data = try? Data(contentsOf: blobPath) {
-                pasteboard.setData(data, forType: .png)
+        // For file URL items, only write file URLs (don't mix with blob data)
+        if let fileURLs = item.originalFileURLs, !fileURLs.isEmpty {
+            let urls = fileURLs.map { URL(fileURLWithPath: $0) as NSURL }
+            pasteboard.writeObjects(urls)
+            wroteContent = true
+        } else {
+            // Write image blob
+            if let blobName = item.blobFileName {
+                let blobPath = blobsURL.appendingPathComponent(blobName)
+                if let data = try? Data(contentsOf: blobPath) {
+                    pasteboard.setData(data, forType: .png)
+                    wroteContent = true
+                }
+            }
+
+            // Write rich text blob
+            if let rtfName = item.richTextBlobFileName {
+                let rtfPath = blobsURL.appendingPathComponent(rtfName)
+                if let data = try? Data(contentsOf: rtfPath) {
+                    pasteboard.setData(data, forType: .rtf)
+                    wroteContent = true
+                }
+            }
+
+            // Write plain text
+            if let text = item.textPreview {
+                pasteboard.setString(text, forType: .string)
                 wroteContent = true
             }
-        }
-
-        // Write rich text blob
-        if let rtfName = item.richTextBlobFileName {
-            let rtfPath = blobsURL.appendingPathComponent(rtfName)
-            if let data = try? Data(contentsOf: rtfPath) {
-                pasteboard.setData(data, forType: .rtf)
-                wroteContent = true
-            }
-        }
-
-        // Write file URL
-        if let fileURLString = item.originalFileURL {
-            let url = URL(fileURLWithPath: fileURLString)
-            pasteboard.writeObjects([url as NSURL])
-            wroteContent = true
-        }
-
-        // Write plain text
-        if let text = item.textPreview {
-            pasteboard.setString(text, forType: .string)
-            wroteContent = true
         }
 
         if !wroteContent {
@@ -197,7 +205,9 @@ class ClipboardStore: ObservableObject {
         guard fileManager.fileExists(atPath: indexURL.path) else { return }
         do {
             let data = try Data(contentsOf: indexURL)
-            items = try JSONDecoder().decode([ClipboardItem].self, from: data)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            items = try decoder.decode([ClipboardItem].self, from: data)
         } catch {
             NSLog("ClipVault: Failed to load index: \(error)")
         }

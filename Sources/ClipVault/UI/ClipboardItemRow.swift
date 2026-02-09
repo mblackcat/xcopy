@@ -58,7 +58,11 @@ struct ClipboardItemRow: View {
         case .image:
             Image(systemName: "photo")
         case .fileURL:
-            Image(systemName: "doc")
+            if item.containsDirectory {
+                Image(systemName: "folder.fill")
+            } else {
+                Image(systemName: "doc")
+            }
         }
     }
 
