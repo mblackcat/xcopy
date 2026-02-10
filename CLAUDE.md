@@ -19,7 +19,9 @@ Sources/ClipVault/
   Services/                   # ClipboardMonitor, ClipboardStore, HotKeyManager, PasteService, SettingsManager
   UI/                         # StatusBar, HistoryPanel, SwiftUI views, Settings window
 Resources/Info.plist
-scripts/bundle.sh
+scripts/bundle.sh             # release build → .app bundle
+release.sh                    # one-command build + Gitee Release upload
+.release.env                  # Gitee credentials (git-ignored)
 ```
 
 ## Key Design Decisions
@@ -38,3 +40,35 @@ swift run                # run directly
 ./scripts/bundle.sh      # release build → build/ClipVault.app
 open build/ClipVault.app # launch the app
 ```
+
+## Release & Upload
+
+Use `release.sh` to build, package, and optionally upload to Gitee Releases.
+
+```bash
+./release.sh                        # build + zip (current version from Info.plist)
+./release.sh -v 1.2                 # build + zip with specified version
+./release.sh --upload               # build + zip + upload to Gitee
+./release.sh -v 1.2 --upload        # specify version + upload
+```
+
+### Gitee Upload Configuration
+
+Create `.release.env` in the project root (already in `.gitignore`):
+
+```
+GITEE_TOKEN=your_personal_access_token
+GITEE_OWNER=lizhi-studio
+GITEE_REPO=xcopy
+```
+
+The script will:
+1. Update `Info.plist` version if `-v` is specified
+2. Run `scripts/bundle.sh` for release build
+3. Package `.app` into a zip (`ClipVault-v1.2-macOS.zip`)
+4. Create a Git tag, push to Gitee, create a Release, and upload the zip as an attachment
+
+### Gitee Repository
+
+- **Repo**: https://gitee.com/lizhi-studio/xcopy
+- **Releases**: https://gitee.com/lizhi-studio/xcopy/releases
