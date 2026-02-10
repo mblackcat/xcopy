@@ -16,5 +16,8 @@ xcuserdata/
 .vscode/
 .idea/
 
+# Release config (contains tokens)
+.release.env
+
 # Claude
 .claude/
