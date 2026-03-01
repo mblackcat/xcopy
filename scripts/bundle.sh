@@ -9,7 +9,7 @@ APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
 
 echo "Building $APP_NAME in release mode..."
 cd "$PROJECT_DIR"
-swift build -c release
+swift build --disable-sandbox -c release
 
 echo "Creating app bundle..."
 rm -rf "$APP_BUNDLE"

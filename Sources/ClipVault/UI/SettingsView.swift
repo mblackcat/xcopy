@@ -49,7 +49,7 @@ struct SettingsView: View {
                     .onKeyboardShortcut(isRecording: $isRecordingShortcut, settingsManager: settingsManager)
                 }
 
-                Button("Reset to Default (^⌘V)") {
+                Button("Reset to Default (^V)") {
                     settingsManager.hotkeyKeyCode = Constants.defaultHotkeyKeyCode
                     settingsManager.hotkeyModifiers = Constants.defaultHotkeyModifiers
                 }
@@ -60,7 +60,7 @@ struct SettingsView: View {
                 HStack {
                     Text("ClipVault")
                     Spacer()
-                    Text("Version 1.1")
+                    Text("Version 1.2")
                         .foregroundColor(.secondary)
                 }
                 HStack {
@@ -106,6 +106,16 @@ struct ShortcutRecorderRepresentable: NSViewRepresentable {
 
     func updateNSView(_ nsView: ShortcutRecorderNSView, context: Context) {
         nsView.isRecordingActive = isRecording
+        if isRecording {
+            DispatchQueue.main.async {
+                nsView.window?.makeFirstResponder(nsView)
+            }
+        } else {
+            // If we are still first responder, resign it
+            if nsView.window?.firstResponder === nsView {
+                nsView.window?.makeFirstResponder(nil)
+            }
+        }
     }
 }
 
