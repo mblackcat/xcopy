@@ -49,7 +49,7 @@ struct SettingsView: View {
                     .onKeyboardShortcut(isRecording: $isRecordingShortcut, settingsManager: settingsManager)
                 }
 
-                Button("Reset to Default (^V)") {
+                Button("Reset to Default (⌥V)") {
                     settingsManager.hotkeyKeyCode = Constants.defaultHotkeyKeyCode
                     settingsManager.hotkeyModifiers = Constants.defaultHotkeyModifiers
                 }

@@ -24,7 +24,7 @@ enum Constants {
     static let hotkeyKeyCodeKey = "hotkeyKeyCode"
     static let hotkeyModifiersKey = "hotkeyModifiers"
 
-    // Default hotkey: Control+V (kVK_ANSI_V = 9)
+    // Default hotkey: Option+V (kVK_ANSI_V = 9)
     static let defaultHotkeyKeyCode: UInt32 = 9
-    static let defaultHotkeyModifiers: UInt32 = 0x1000 // controlKey
+    static let defaultHotkeyModifiers: UInt32 = 0x0800 // optionKey
 }
