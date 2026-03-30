@@ -53,14 +53,20 @@ swift run                # 直接运行
 
 ### 发布
 
-使用 `release.sh` 一键打包并生成可发布的 zip 文件：
+使用 `release.sh` 一键打包，并可选择直接发布到 GitHub Releases：
 
 ```bash
-./release.sh             # 打包（使用当前版本号）
-./release.sh -v 1.2      # 指定版本号打包
+./release.sh                        # 打包（使用当前版本号）
+./release.sh -v 1.2                 # 指定版本号打包
+./release.sh --upload               # 打包 + 发布到 GitHub Releases
+./release.sh -v 1.2 --upload        # 指定版本号 + 发布
 ```
 
-如果你准备将发布流程迁移到 GitHub Releases，可以在此基础上继续调整 `release.sh`。
+上传需要本机已安装并登录 GitHub CLI：
+
+```bash
+gh auth login
+```
 
 ## 项目结构
 
@@ -75,7 +81,7 @@ Resources/
   Info.plist                  # 应用配置
   AppIcon.icns                # 应用图标
 scripts/bundle.sh             # Release 构建脚本
-release.sh                    # 本地打包脚本
+release.sh                    # 本地打包 / GitHub Release 发布脚本
 ```
 
 ## 技术栈

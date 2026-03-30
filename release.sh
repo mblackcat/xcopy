@@ -7,19 +7,13 @@ set -euo pipefail
 # Usage:
 #   ./release.sh                        仅打包（使用 Info.plist 中的当前版本号）
 #   ./release.sh -v 1.2                 指定版本号打包
-#   ./release.sh --upload               打包 + 上传到 Gitee Release
-#   ./release.sh -v 1.2 --upload        指定版本号打包 + 上传
+#   ./release.sh --upload               打包 + 发布到 GitHub Releases
+#   ./release.sh -v 1.2 --upload        指定版本号打包 + 发布
 #   ./release.sh --help                 查看帮助
 #
-# 环境变量:
-#   GITEE_TOKEN   Gitee 私人令牌（上传时必须）
-#   GITEE_OWNER   Gitee 用户名/组织名（上传时必须）
-#   GITEE_REPO    Gitee 仓库名（上传时必须）
-#
-# 你也可以在项目根目录创建 .release.env 文件来配置以上变量:
-#   GITEE_TOKEN=xxx
-#   GITEE_OWNER=your-name
-#   GITEE_REPO=clipvault
+# 发布依赖:
+#   - 已安装 GitHub CLI (`gh`)
+#   - 已完成 `gh auth login`
 #=============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -27,13 +21,11 @@ PROJECT_DIR="$SCRIPT_DIR"
 BUILD_DIR="$PROJECT_DIR/build"
 PLIST="$PROJECT_DIR/Resources/Info.plist"
 APP_NAME="ClipVault"
+REPO_SLUG="mblackcat/xcopy"
 
 VERSION=""
 UPLOAD=false
 
-#-------------------------------------------------------------
-# 帮助信息
-#-------------------------------------------------------------
 usage() {
     cat <<'HELP'
 ClipVault Release Script
@@ -43,26 +35,23 @@ ClipVault Release Script
 
 选项:
   -v, --version VERSION   指定版本号（如 1.2、2.0.0），会同步更新 Info.plist
-  -u, --upload            打包后上传到 Gitee Release
+  -u, --upload            打包后发布到 GitHub Releases
   -h, --help              显示此帮助信息
 
 示例:
   ./release.sh                    仅打包，版本号取 Info.plist 当前值
   ./release.sh -v 1.2             以版本 1.2 打包
-  ./release.sh -v 1.2 --upload    以版本 1.2 打包并上传 Gitee
-  ./release.sh --upload           打包并上传 Gitee
+  ./release.sh --upload           打包并发布到 GitHub Releases
+  ./release.sh -v 1.2 --upload    以版本 1.2 打包并发布到 GitHub Releases
 
-上传配置（三选一）:
-  1. 设置环境变量 GITEE_TOKEN, GITEE_OWNER, GITEE_REPO
-  2. 在项目根目录创建 .release.env 文件
-  3. 脚本运行时交互输入
+发布前请确保:
+  1. 已安装 GitHub CLI (`gh`)
+  2. 已执行 `gh auth login`
+  3. 当前仓库远程指向 GitHub 仓库
 HELP
     exit 0
 }
 
-#-------------------------------------------------------------
-# 解析参数
-#-------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -v|--version)
@@ -84,23 +73,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-#-------------------------------------------------------------
-# 读取 .release.env（如果存在）
-#-------------------------------------------------------------
-ENV_FILE="$PROJECT_DIR/.release.env"
-if [[ -f "$ENV_FILE" ]]; then
-    # shellcheck disable=SC1090
-    source "$ENV_FILE"
-fi
-
-#-------------------------------------------------------------
-# 读取 / 更新版本号
-#-------------------------------------------------------------
 if [[ -n "$VERSION" ]]; then
     echo ">>> 更新版本号为 $VERSION ..."
-    # 更新 CFBundleVersion
     /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$PLIST"
-    # 更新 CFBundleShortVersionString
     /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
     echo "    Info.plist 已更新"
 else
@@ -109,19 +84,34 @@ else
 fi
 
 TAG_NAME="v${VERSION}"
+RELEASE_NAME="ClipVault ${TAG_NAME}"
 ZIP_NAME="${APP_NAME}-${TAG_NAME}-macOS.zip"
 ZIP_PATH="${BUILD_DIR}/${ZIP_NAME}"
+RELEASE_NOTES=$(cat <<'EOF'
+## What's new
 
-#-------------------------------------------------------------
-# 构建
-#-------------------------------------------------------------
+- Default global shortcut is now Option+V
+- README updated for the GitHub repository and release flow
+- Added a noncommercial license for public distribution
+
+## Features
+
+- Clipboard history for text, images, rich text, files, and folders
+- Menu bar access with a global hotkey
+- Automatic paste back into the current app
+- Local-only storage under ~/Library/Application Support/ClipVault/
+
+## Requirements
+
+- macOS 13.0+
+- Accessibility permission required for automatic paste
+EOF
+)
+
 echo ""
 echo ">>> 构建 Release ..."
 "$PROJECT_DIR/scripts/bundle.sh"
 
-#-------------------------------------------------------------
-# 打包 zip
-#-------------------------------------------------------------
 echo ""
 echo ">>> 打包 $ZIP_NAME ..."
 cd "$BUILD_DIR"
@@ -130,45 +120,28 @@ ditto -c -k --sequesterRsrc --keepParent "${APP_NAME}.app" "$ZIP_NAME"
 ZIP_SIZE=$(du -h "$ZIP_NAME" | cut -f1 | xargs)
 echo "    产物: $ZIP_PATH ($ZIP_SIZE)"
 
-#-------------------------------------------------------------
-# 如果不需要上传，到此结束
-#-------------------------------------------------------------
 if [[ "$UPLOAD" != true ]]; then
     echo ""
     echo "=== 打包完成 ==="
     echo "产物路径: $ZIP_PATH"
     echo ""
-    echo "如需上传到 Gitee，请执行:"
+    echo "如需发布到 GitHub Releases，请执行:"
     echo "  ./release.sh -v $VERSION --upload"
     exit 0
 fi
 
-#-------------------------------------------------------------
-# 上传前检查配置
-#-------------------------------------------------------------
 echo ""
-echo ">>> 准备上传到 Gitee ..."
-
-if [[ -z "${GITEE_TOKEN:-}" ]]; then
-    read -rp "请输入 Gitee 私人令牌 (Token): " GITEE_TOKEN
-fi
-if [[ -z "${GITEE_OWNER:-}" ]]; then
-    read -rp "请输入 Gitee 用户名/组织名 (Owner): " GITEE_OWNER
-fi
-if [[ -z "${GITEE_REPO:-}" ]]; then
-    read -rp "请输入 Gitee 仓库名 (Repo): " GITEE_REPO
-fi
-
-if [[ -z "$GITEE_TOKEN" || -z "$GITEE_OWNER" || -z "$GITEE_REPO" ]]; then
-    echo "错误: GITEE_TOKEN, GITEE_OWNER, GITEE_REPO 均不能为空"
+echo ">>> 检查 GitHub CLI ..."
+if ! command -v gh >/dev/null 2>&1; then
+    echo "错误: 未找到 gh 命令，请先安装 GitHub CLI"
     exit 1
 fi
 
-API_BASE="https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}"
+if ! gh auth status >/dev/null 2>&1; then
+    echo "错误: GitHub CLI 尚未登录，请先执行 gh auth login"
+    exit 1
+fi
 
-#-------------------------------------------------------------
-# 创建 Git Tag（如果不存在）
-#-------------------------------------------------------------
 echo ""
 echo ">>> 检查 Git Tag: $TAG_NAME ..."
 if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
@@ -178,112 +151,36 @@ else
     git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
 fi
 
-# 确定推送用的 remote（优先用指向 gitee 的 remote）
-GITEE_REMOTE=""
-for r in origin gitee; do
-    if git remote get-url "$r" 2>/dev/null | grep -q "gitee.com"; then
-        GITEE_REMOTE="$r"
-        break
-    fi
-done
-if [[ -z "$GITEE_REMOTE" ]]; then
-    echo "    添加 gitee remote ..."
-    git remote add gitee "https://gitee.com/${GITEE_OWNER}/${GITEE_REPO}.git"
-    GITEE_REMOTE="gitee"
-fi
+echo "    推送 Tag 到 origin ..."
+git push origin "$TAG_NAME"
 
-echo "    推送代码到 Gitee ($GITEE_REMOTE) ..."
-git push "$GITEE_REMOTE" HEAD 2>&1 || true
-echo "    推送 Tag 到 Gitee ..."
-git push "$GITEE_REMOTE" "$TAG_NAME" 2>&1 || true
-
-# 获取当前分支名，供 Release API 使用
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-
-#-------------------------------------------------------------
-# 创建 Gitee Release
-#-------------------------------------------------------------
 echo ""
-echo ">>> 创建 Gitee Release ..."
-
-RELEASE_BODY="## ClipVault ${TAG_NAME}
-
-- 版本: ${VERSION}
-- 构建时间: $(date '+%Y-%m-%d %H:%M:%S')
-- 系统要求: macOS 13.0+"
-
-CREATE_RESP=$(curl -s -X POST "${API_BASE}/releases" \
-    -H "Content-Type: application/json" \
-    -d "{
-        \"access_token\": \"${GITEE_TOKEN}\",
-        \"tag_name\": \"${TAG_NAME}\",
-        \"name\": \"ClipVault ${TAG_NAME}\",
-        \"body\": $(printf '%s' "$RELEASE_BODY" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),
-        \"target_commitish\": \"${CURRENT_BRANCH}\",
-        \"prerelease\": false
-    }")
-
-# 提取 release id
-RELEASE_ID=$(echo "$CREATE_RESP" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    print(data.get('id', ''))
-except:
-    print('')
-" 2>/dev/null)
-
-if [[ -z "$RELEASE_ID" ]]; then
-    echo "错误: 创建 Release 失败"
-    echo "响应: $CREATE_RESP"
-    echo ""
-    echo "如果 Release 已存在，你可以手动上传附件:"
-    echo "  在 Gitee 仓库页面 → 发行版 → $TAG_NAME → 编辑 → 上传文件"
-    exit 1
+echo ">>> 创建或更新 GitHub Release ..."
+if gh release view "$TAG_NAME" --repo "$REPO_SLUG" >/dev/null 2>&1; then
+    echo "    Release 已存在，更新说明并上传制品 ..."
+    gh release edit "$TAG_NAME" \
+        --repo "$REPO_SLUG" \
+        --title "$RELEASE_NAME" \
+        --notes "$RELEASE_NOTES"
+else
+    echo "    创建新的 GitHub Release ..."
+    gh release create "$TAG_NAME" \
+        --repo "$REPO_SLUG" \
+        --title "$RELEASE_NAME" \
+        --notes "$RELEASE_NOTES"
 fi
 
-echo "    Release 创建成功 (ID: $RELEASE_ID)"
-
-#-------------------------------------------------------------
-# 上传附件
-#-------------------------------------------------------------
 echo ""
 echo ">>> 上传附件: $ZIP_NAME ..."
+gh release upload "$TAG_NAME" "$ZIP_PATH" \
+    --repo "$REPO_SLUG" \
+    --clobber
 
-UPLOAD_RESP=$(curl -s -X POST \
-    "${API_BASE}/releases/${RELEASE_ID}/attach_files" \
-    -F "access_token=${GITEE_TOKEN}" \
-    -F "file=@${ZIP_PATH}")
-
-DOWNLOAD_URL=$(echo "$UPLOAD_RESP" | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    url = data.get('browser_download_url', '')
-    print(url)
-except:
-    print('')
-" 2>/dev/null)
-
-if [[ -z "$DOWNLOAD_URL" ]]; then
-    echo "警告: 附件上传可能失败"
-    echo "响应: $UPLOAD_RESP"
-    echo "请到 Gitee 网页端手动检查并补传"
-else
-    echo "    上传成功!"
-fi
-
-#-------------------------------------------------------------
-# 汇总
-#-------------------------------------------------------------
 echo ""
 echo "==========================================="
 echo "  ClipVault ${TAG_NAME} 发布完成!"
 echo "==========================================="
 echo ""
-echo "  Release 页面: https://gitee.com/${GITEE_OWNER}/${GITEE_REPO}/releases/tag/${TAG_NAME}"
-if [[ -n "$DOWNLOAD_URL" ]]; then
-    echo "  下载链接:     $DOWNLOAD_URL"
-fi
+echo "  Release 页面: https://github.com/${REPO_SLUG}/releases/tag/${TAG_NAME}"
 echo "  本地产物:     $ZIP_PATH"
 echo ""
